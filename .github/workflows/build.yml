@@ -1,0 +1,46 @@
+name: Fedora Build
+on: push
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    container:
+      image: fedora:${{ github.ref_name }}
+    steps:
+    - uses: actions/checkout@v2
+      with:
+        persist-credentials: false
+
+    - name: Import GPG key
+      id: import_gpg
+      uses: crazy-max/ghaction-import-gpg@v4
+      with:
+        gpg_private_key: ${{ secrets.GPG_PRIVATE_KEY }}
+        passphrase: ${{ secrets.PASSPHRASE }}
+
+    - run: dnf install fedora-packager rpm-sign createrepo -y
+
+    - run: dnf builddep ${{ github.event.repository.name }}.spec -y
+
+    - run: fedpkg --release f${{ github.ref_name }} local
+
+    - run: rpm --define "_gpg_name mail@ernestocastellotti.it" --define "_signature gpg" --addsign noarch/*.rpm
+
+    - run: git clone https://github.com/Gnome-Performance-Fedora/repo Gnome-Performance-Fedora-Repository
+
+    - run: cp noarch/*.rpm Gnome-Performance-Fedora-Repository/f${{ github.ref_name }}/packages
+
+    - run: createrepo --update Gnome-Performance-Fedora-Repository/f${{ github.ref_name }}/packages
+
+    - run: gpg --yes --detach-sign --armor Gnome-Performance-Fedora-Repository/f${{ github.ref_name }}/packages/repodata/repomd.xml
+
+    - name: Push to repository
+      uses: actions-js/push@master
+      with:
+        github_token: ${{ secrets.GH_TOKEN }}
+        author_email: mail@ernestocastellotti.it
+        author_name: Ernesto Castellotti
+        message: Update package ${{ github.event.repository.name }}
+        directory: Gnome-Performance-Fedora-Repository
+        repository: Gnome-Performance-Fedora/repo
+        branch: master
